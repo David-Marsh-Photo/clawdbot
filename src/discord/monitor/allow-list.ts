@@ -21,6 +21,8 @@ export type DiscordGuildEntryResolved = {
   slug?: string;
   requireMention?: boolean;
   reactionNotifications?: "off" | "own" | "all" | "allowlist";
+  /** Reaction trigger mode: invoke agent turn on reaction (off|own|all|allowlist). Default: off. */
+  reactionTrigger?: "off" | "own" | "all" | "allowlist";
   users?: Array<string | number>;
   channels?: Record<
     string,
@@ -413,6 +415,37 @@ export function shouldEmitDiscordReactionNotification(params: {
     if (!list) {
       return false;
     }
+    return allowListMatches(list, {
+      id: params.userId,
+      name: params.userName,
+      tag: params.userTag,
+    });
+  }
+  return false;
+}
+
+/**
+ * Determines if a reaction should trigger an agent turn (invoke the agent).
+ * Uses the same logic as shouldEmitDiscordReactionNotification but with a separate config.
+ */
+export function shouldTriggerDiscordReaction(params: {
+  mode?: "off" | "own" | "all" | "allowlist";
+  botId?: string;
+  messageAuthorId?: string;
+  userId: string;
+  userName?: string;
+  userTag?: string;
+  allowlist?: Array<string | number>;
+}): boolean {
+  const mode = params.mode ?? "off"; // Default: off (don't trigger)
+  if (mode === "off") return false;
+  if (mode === "all") return true;
+  if (mode === "own") {
+    return Boolean(params.botId && params.messageAuthorId === params.botId);
+  }
+  if (mode === "allowlist") {
+    const list = normalizeDiscordAllowList(params.allowlist, ["discord:", "user:"]);
+    if (!list) return false;
     return allowListMatches(list, {
       id: params.userId,
       name: params.userName,

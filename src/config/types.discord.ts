@@ -42,6 +42,8 @@ export type DiscordGuildChannelConfig = {
 
 export type DiscordReactionNotificationMode = "off" | "own" | "all" | "allowlist";
 
+export type DiscordReactionTriggerMode = "off" | "own" | "all" | "allowlist";
+
 export type DiscordGuildEntry = {
   slug?: string;
   requireMention?: boolean;
@@ -50,6 +52,8 @@ export type DiscordGuildEntry = {
   toolsBySender?: GroupToolPolicyBySenderConfig;
   /** Reaction notification mode (off|own|all|allowlist). Default: own. */
   reactionNotifications?: DiscordReactionNotificationMode;
+  /** Reaction trigger mode: invoke agent turn on reaction (off|own|all|allowlist). Default: off. */
+  reactionTrigger?: DiscordReactionTriggerMode;
   users?: Array<string | number>;
   channels?: Record<string, DiscordGuildChannelConfig>;
 };
