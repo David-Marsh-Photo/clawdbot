@@ -23,6 +23,10 @@ export type DiscordGuildEntryResolved = {
   reactionNotifications?: "off" | "own" | "all" | "allowlist";
   /** Reaction trigger mode: invoke agent turn on reaction (off|own|all|allowlist). Default: off. */
   reactionTrigger?: "off" | "own" | "all" | "allowlist";
+  /** Only trigger on specific emojis. Empty/omitted = all emojis. */
+  reactionTriggerEmojis?: string[];
+  /** Cooldown in ms between reaction triggers per user per message. Default: 30000 (30s). */
+  reactionTriggerCooldownMs?: number;
   users?: Array<string | number>;
   channels?: Record<
     string,

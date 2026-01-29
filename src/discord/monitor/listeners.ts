@@ -28,6 +28,39 @@ type LoadedConfig = ReturnType<typeof import("../../config/config.js").loadConfi
 type RuntimeEnv = import("../../runtime.js").RuntimeEnv;
 type Logger = ReturnType<typeof import("../../logging/subsystem.js").createSubsystemLogger>;
 
+// Rate limiting for reaction triggers: Map<"messageId:userId", lastTriggerTimestamp>
+const reactionTriggerCooldowns = new Map<string, number>();
+const DEFAULT_REACTION_TRIGGER_COOLDOWN_MS = 30_000; // 30 seconds
+
+function checkReactionTriggerCooldown(params: {
+  messageId: string;
+  userId: string;
+  cooldownMs?: number;
+}): boolean {
+  const { messageId, userId, cooldownMs = DEFAULT_REACTION_TRIGGER_COOLDOWN_MS } = params;
+  if (cooldownMs <= 0) return true; // No cooldown
+
+  const key = `${messageId}:${userId}`;
+  const now = Date.now();
+  const lastTrigger = reactionTriggerCooldowns.get(key);
+
+  if (lastTrigger && now - lastTrigger < cooldownMs) {
+    return false; // Still in cooldown
+  }
+
+  reactionTriggerCooldowns.set(key, now);
+
+  // Cleanup old entries periodically (keep map from growing unbounded)
+  if (reactionTriggerCooldowns.size > 1000) {
+    const cutoff = now - cooldownMs * 2;
+    for (const [k, v] of reactionTriggerCooldowns) {
+      if (v < cutoff) reactionTriggerCooldowns.delete(k);
+    }
+  }
+
+  return true; // Allowed
+}
+
 export type DiscordMessageEvent = Parameters<MessageCreateListener["handle"]>[0];
 
 export type DiscordMessageHandler = (data: DiscordMessageEvent, client: Client) => Promise<void>;
@@ -242,16 +275,38 @@ async function handleDiscordReactionEvent(params: {
     const message = await data.message.fetch().catch(() => null);
     const messageAuthorId = message?.author?.id ?? undefined;
 
-    // Check if we should trigger an agent turn
-    const shouldTrigger = shouldTriggerDiscordReaction({
-      mode: reactionTriggerMode,
-      botId: botUserId,
-      messageAuthorId,
-      userId: user.id,
-      userName: user.username,
-      userTag: formatDiscordUserTag(user),
-      allowlist: guildInfo?.users,
-    });
+    const emojiLabel = formatDiscordReactionEmoji(data.emoji);
+
+    // Check if we should trigger an agent turn (only on "added", not "removed")
+    let shouldTrigger = false;
+    if (action === "added") {
+      shouldTrigger = shouldTriggerDiscordReaction({
+        mode: reactionTriggerMode,
+        botId: botUserId,
+        messageAuthorId,
+        userId: user.id,
+        userName: user.username,
+        userTag: formatDiscordUserTag(user),
+        allowlist: guildInfo?.users,
+      });
+
+      // Check emoji filter if configured
+      if (shouldTrigger && guildInfo?.reactionTriggerEmojis?.length) {
+        const allowedEmojis = guildInfo.reactionTriggerEmojis;
+        shouldTrigger = allowedEmojis.includes(emojiLabel);
+      }
+
+      // Check rate limit
+      if (shouldTrigger) {
+        const cooldownMs =
+          guildInfo?.reactionTriggerCooldownMs ?? DEFAULT_REACTION_TRIGGER_COOLDOWN_MS;
+        shouldTrigger = checkReactionTriggerCooldown({
+          messageId: data.message_id,
+          userId: user.id,
+          cooldownMs,
+        });
+      }
+    }
 
     // Check if we should notify via system event (only if not triggering)
     const shouldNotify =
@@ -267,8 +322,6 @@ async function handleDiscordReactionEvent(params: {
       });
 
     if (!shouldTrigger && !shouldNotify) return;
-
-    const emojiLabel = formatDiscordReactionEmoji(data.emoji);
     const actorLabel = formatDiscordUserTag(user);
     const guildSlug =
       guildInfo?.slug || (data.guild?.name ? normalizeDiscordSlug(data.guild.name) : data.guild_id);

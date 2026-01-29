@@ -246,6 +246,10 @@ export const DiscordGuildSchema = z
     reactionNotifications: z.enum(["off", "own", "all", "allowlist"]).optional(),
     /** Reaction trigger mode: invoke agent turn on reaction (off|own|all|allowlist). Default: off. */
     reactionTrigger: z.enum(["off", "own", "all", "allowlist"]).optional(),
+    /** Only trigger on specific emojis (e.g., ["🤖", "👀"]). Empty/omitted = all emojis. */
+    reactionTriggerEmojis: z.array(z.string()).optional(),
+    /** Cooldown in ms between reaction triggers per user per message. Default: 30000 (30s). */
+    reactionTriggerCooldownMs: z.number().int().min(0).optional(),
     users: z.array(z.union([z.string(), z.number()])).optional(),
     channels: z.record(z.string(), DiscordGuildChannelSchema.optional()).optional(),
   })

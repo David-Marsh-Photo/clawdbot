@@ -341,10 +341,18 @@ Use `guilds.<id>.reactionTrigger` to invoke an agent turn when a user reacts to 
 - `all`: trigger agent on reactions to any message.
 - `allowlist`: trigger agent for reactions from `guilds.<id>.users` only.
 
+Additional options:
+- `guilds.<id>.reactionTriggerEmojis`: array of emojis that trigger (e.g., `["🤖", "👀"]`). Omit to allow all emojis.
+- `guilds.<id>.reactionTriggerCooldownMs`: cooldown between triggers per user per message. Default: 30000 (30 seconds). Set to 0 to disable.
+
 When triggered, the agent receives a synthetic message containing:
 - The reactor's user tag and the emoji they used
 - The content of the reacted-to message (if available)
-- Action type (added or removed)
+
+Notes:
+- Only reaction **adds** trigger the agent (removes do not)
+- Rate limiting prevents spam from rapid reactions
+- Uses the guild's `users` allowlist when mode is `allowlist`
 
 This is useful for interactive workflows where reactions serve as commands (e.g., 👀 to request analysis, 🤖 to trigger a response).
 

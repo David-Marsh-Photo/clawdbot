@@ -54,6 +54,10 @@ export type DiscordGuildEntry = {
   reactionNotifications?: DiscordReactionNotificationMode;
   /** Reaction trigger mode: invoke agent turn on reaction (off|own|all|allowlist). Default: off. */
   reactionTrigger?: DiscordReactionTriggerMode;
+  /** Only trigger on specific emojis (e.g., ["🤖", "👀"]). Empty/omitted = all emojis. */
+  reactionTriggerEmojis?: string[];
+  /** Cooldown in ms between reaction triggers per user per message. Default: 30000 (30s). */
+  reactionTriggerCooldownMs?: number;
   users?: Array<string | number>;
   channels?: Record<string, DiscordGuildChannelConfig>;
 };
