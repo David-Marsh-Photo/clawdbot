@@ -205,10 +205,18 @@ export async function acquireSessionWriteLock(params: {
  * Release all session write locks held by this process.
  * Call this before in-process restarts (SIGUSR1) to prevent stale locks
  * from blocking sessions when the PID remains the same after restart.
+ *
+ * Note: Locks with nested holders (count > 1) are decremented rather than
+ * fully released, preserving correctness for any code still holding refs.
  */
 export async function releaseAllSessionLocks(): Promise<void> {
-  const entries = [...HELD_LOCKS.entries()];
-  for (const [sessionFile, held] of entries) {
+  for (const [sessionFile, held] of HELD_LOCKS) {
+    if (held.count > 1) {
+      // Nested holders exist - just decrement
+      held.count -= 1;
+      continue;
+    }
+    // count === 1: fully release
     try {
       await held.handle.close();
     } catch {
