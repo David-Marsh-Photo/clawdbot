@@ -13,6 +13,22 @@ export type ModelSelectedContext = {
   thinkLevel: string | undefined;
 };
 
+/** Status update during tool execution (for live progress messages). */
+export type ToolStatusUpdate = {
+  /** Tool name (e.g., "exec", "web_search") */
+  toolName: string;
+  /** Tool call ID */
+  toolCallId: string;
+  /** Current status */
+  status: "running" | "completed" | "error";
+  /** Human-readable summary (e.g., "Running command...", "3/7 agents completed") */
+  summary?: string;
+  /** Elapsed time in ms since tool started */
+  elapsedMs?: number;
+  /** Raw details from the tool (optional, for debugging) */
+  details?: Record<string, unknown>;
+};
+
 export type GetReplyOptions = {
   /** Override run id for agent events (defaults to random UUID). */
   runId?: string;
@@ -29,6 +45,8 @@ export type GetReplyOptions = {
   onReasoningStream?: (payload: ReplyPayload) => Promise<void> | void;
   onBlockReply?: (payload: ReplyPayload, context?: BlockReplyContext) => Promise<void> | void;
   onToolResult?: (payload: ReplyPayload) => Promise<void> | void;
+  /** Called during long tool execution with status updates (for live progress). */
+  onToolStatusUpdate?: (update: ToolStatusUpdate) => Promise<void> | void;
   /** Called when the actual model is selected (including after fallback).
    * Use this to get model/provider/thinkLevel for responsePrefix template interpolation. */
   onModelSelected?: (ctx: ModelSelectedContext) => void;

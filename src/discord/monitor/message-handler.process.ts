@@ -385,6 +385,28 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
       onModelSelected: (ctx) => {
         prefixContext.onModelSelected(ctx);
       },
+      // Send tool status updates during long-running operations
+      onToolStatusUpdate: discordConfig?.toolStatusUpdates
+        ? async (update) => {
+            // Only send for long-running tools (exec, process, sessions_spawn)
+            const longRunningTools = ["exec", "process", "sessions_spawn", "browser"];
+            if (!longRunningTools.includes(update.toolName)) {
+              return;
+            }
+            const statusText = `⏳ ${update.summary ?? `${update.toolName} running...`}`;
+            await deliverDiscordReply({
+              replies: [{ text: statusText }],
+              target: deliverTarget,
+              token,
+              accountId,
+              rest: client.rest,
+              runtime,
+              textLimit,
+              tableMode,
+              chunkMode: resolveChunkMode(cfg, "discord", accountId),
+            });
+          }
+        : undefined,
     },
   });
   markDispatchIdle();
