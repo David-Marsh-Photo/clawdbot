@@ -141,6 +141,7 @@ export function handleToolExecutionUpdate(
       phase: "update",
       name: toolName,
       toolCallId,
+      partialResult: sanitized,
     },
   });
 }

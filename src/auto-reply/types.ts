@@ -27,6 +27,8 @@ export type ToolStatusUpdate = {
   elapsedMs?: number;
   /** Raw details from the tool (optional, for debugging) */
   details?: Record<string, unknown>;
+  /** Last N chars of command output (for streaming display) */
+  tail?: string;
 };
 
 export type GetReplyOptions = {

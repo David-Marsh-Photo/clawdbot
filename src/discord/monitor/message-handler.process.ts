@@ -40,6 +40,7 @@ import {
 import { buildDirectLabel, buildGuildLabel, resolveReplyContext } from "./reply-context.js";
 import { deliverDiscordReply } from "./reply-delivery.js";
 import { resolveDiscordAutoThreadReplyPlan, resolveDiscordThreadStarter } from "./threading.js";
+import { sendOrUpdateToolStatus } from "./tool-status-manager.js";
 import { sendTyping } from "./typing.js";
 
 export async function processDiscordMessage(ctx: DiscordMessagePreflightContext) {
@@ -388,22 +389,40 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
       // Send tool status updates during long-running operations
       onToolStatusUpdate: discordConfig?.toolStatusUpdates
         ? async (update) => {
-            // Only send for long-running tools (exec, process, sessions_spawn)
+            // Only send for long-running tools (exec, process, sessions_spawn, browser)
             const longRunningTools = ["exec", "process", "sessions_spawn", "browser"];
             if (!longRunningTools.includes(update.toolName)) {
               return;
             }
-            const statusText = `⏳ ${update.summary ?? `${update.toolName} running...`}`;
-            await deliverDiscordReply({
-              replies: [{ text: statusText }],
-              target: deliverTarget,
-              token,
-              accountId,
-              rest: client.rest,
-              runtime,
-              textLimit,
-              tableMode,
-              chunkMode: resolveChunkMode(cfg, "discord", accountId),
+
+            // Format status content with optional tail output
+            let content = `\u23F3 **${update.toolName}** ${update.status === "completed" ? "completed" : `running (${Math.round((update.elapsedMs ?? 0) / 1000)}s)`}`;
+            if (update.tail && update.status !== "completed") {
+              // Format output in code block (last 8 lines, max 1200 chars)
+              const lines = update.tail.split("\n").slice(-8);
+              let output = lines.join("\n");
+              if (output.length > 1200) {
+                output = "..." + output.slice(-1197);
+              }
+              content += "\n```\n" + output + "\n```";
+            }
+
+            // Truncate to Discord limit
+            if (content.length > 1990) {
+              content = content.slice(0, 1987) + "...";
+            }
+
+            // Extract channel ID from deliver target
+            const channelId = deliverTarget.startsWith("channel:")
+              ? deliverTarget.slice("channel:".length)
+              : message.channelId;
+
+            await sendOrUpdateToolStatus({
+              channelId,
+              toolCallId: update.toolCallId,
+              content,
+              isComplete: update.status !== "running",
+              opts: { token, rest: client.rest },
             });
           }
         : undefined,

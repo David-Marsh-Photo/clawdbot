@@ -84,7 +84,7 @@ export async function runAgentTurnWithFallback(params: {
   const directlySentBlockKeys = new Set<string>();
 
   // Track tool execution for status updates
-  const toolStartTimes = new Map<string, number>();
+  const toolStartTimes = new Map<string, { start: number; name: string }>();
   const lastToolStatusUpdate = new Map<string, number>();
   const TOOL_STATUS_THROTTLE_MS = 30_000; // Max 1 status update per 30s per tool
 
@@ -328,7 +328,7 @@ export async function runAgentTurnWithFallback(params: {
                 if (phase === "start") {
                   await params.typingSignals.signalToolStart();
                   // Track tool start time for status updates
-                  toolStartTimes.set(toolCallId, Date.now());
+                  toolStartTimes.set(toolCallId, { start: Date.now(), name: toolName });
                 }
 
                 if (phase === "update") {
@@ -338,36 +338,48 @@ export async function runAgentTurnWithFallback(params: {
                   if (params.opts?.onToolStatusUpdate && toolCallId) {
                     const now = Date.now();
                     const lastUpdate = lastToolStatusUpdate.get(toolCallId) ?? 0;
-                    const startTime = toolStartTimes.get(toolCallId) ?? now;
+                    const startTime = toolStartTimes.get(toolCallId)?.start ?? now;
                     const elapsedMs = now - startTime;
 
                     // Only send updates after 10s elapsed and throttle to 1 per 30s
                     if (elapsedMs >= 10_000 && now - lastUpdate >= TOOL_STATUS_THROTTLE_MS) {
                       lastToolStatusUpdate.set(toolCallId, now);
 
-                      // Extract summary from partial result if available
+                      // Extract summary and tail from partial result if available
                       const partialResult = evt.data.partialResult as
                         | Record<string, unknown>
                         | undefined;
                       const details = partialResult?.details as Record<string, unknown> | undefined;
                       const tail = details?.tail as string | undefined;
-                      const summary = tail
-                        ? `Running... (${Math.round(elapsedMs / 1000)}s)`
-                        : `Tool running for ${Math.round(elapsedMs / 1000)}s`;
+                      const summary = `Running... (${Math.round(elapsedMs / 1000)}s)`;
 
-                      void params.opts.onToolStatusUpdate({
+                      const p = params.opts.onToolStatusUpdate({
                         toolName,
                         toolCallId,
                         status: "running",
                         summary,
                         elapsedMs,
                         details: details ?? undefined,
+                        tail,
                       });
+                      if (p) p.catch(() => {});
                     }
                   }
                 }
 
                 if (phase === "end") {
+                  // Send final status update before cleanup
+                  if (params.opts?.onToolStatusUpdate) {
+                    const startTime = toolStartTimes.get(toolCallId)?.start;
+                    const p = params.opts.onToolStatusUpdate({
+                      toolName,
+                      toolCallId,
+                      status: "completed",
+                      summary: `${toolName} completed`,
+                      elapsedMs: startTime ? Date.now() - startTime : undefined,
+                    });
+                    if (p) p.catch(() => {});
+                  }
                   // Clean up tracking
                   toolStartTimes.delete(toolCallId);
                   lastToolStatusUpdate.delete(toolCallId);
@@ -604,6 +616,22 @@ export async function runAgentTurnWithFallback(params: {
       }
 
       defaultRuntime.error(`Embedded agent failed before reply: ${message}`);
+
+      // Cleanup any running tools to avoid stuck status messages
+      if (params.opts?.onToolStatusUpdate) {
+        for (const [toolCallId, info] of toolStartTimes) {
+          const p = params.opts.onToolStatusUpdate({
+            toolName: info.name,
+            toolCallId,
+            status: "error",
+            summary: "Tool execution interrupted",
+          });
+          if (p) p.catch(() => {});
+        }
+      }
+      toolStartTimes.clear();
+      lastToolStatusUpdate.clear();
+
       const trimmedMessage = message.replace(/\.\s*$/, "");
       const fallbackText = isContextOverflow
         ? "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model."
