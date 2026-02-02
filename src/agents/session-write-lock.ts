@@ -207,6 +207,36 @@ export async function acquireSessionWriteLock(params: {
   throw new Error(`session file locked (timeout ${timeoutMs}ms): ${owner} ${lockPath}`);
 }
 
+/**
+ * Release all session write locks held by this process.
+ * Call this before in-process restarts (SIGUSR1) to prevent stale locks
+ * from blocking sessions when the PID remains the same after restart.
+ *
+ * Note: Locks with nested holders (count > 1) are decremented rather than
+ * fully released, preserving correctness for any code still holding refs.
+ */
+export async function releaseAllSessionLocks(): Promise<void> {
+  for (const [sessionFile, held] of HELD_LOCKS) {
+    if (held.count > 1) {
+      // Nested holders exist - just decrement
+      held.count -= 1;
+      continue;
+    }
+    // count === 1: fully release
+    try {
+      await held.handle.close();
+    } catch {
+      // Ignore errors during cleanup - best effort
+    }
+    try {
+      await fs.rm(held.lockPath, { force: true });
+    } catch {
+      // Ignore errors during cleanup - best effort
+    }
+    HELD_LOCKS.delete(sessionFile);
+  }
+}
+
 export const __testing = {
   cleanupSignals: [...CLEANUP_SIGNALS],
   handleTerminationSignal,
