@@ -102,11 +102,30 @@ export async function createThreadDiscord(
 ) {
   const rest = resolveDiscordRest(opts);
   const body: Record<string, unknown> = { name: payload.name };
-  if (payload.autoArchiveMinutes) {
+  if (typeof payload.autoArchiveMinutes === "number") {
     body.auto_archive_duration = payload.autoArchiveMinutes;
   }
-  const route = Routes.threads(channelId, payload.messageId);
-  return await rest.post(route, { body });
+
+  // Regular thread from existing message (requires messageId)
+  if (payload.messageId) {
+    const route = Routes.threads(channelId, payload.messageId);
+    return await rest.post(route, { body });
+  }
+
+  // Forum/media channel post (no messageId, requires message content)
+  if (payload.message) {
+    body.message = payload.message;
+    if (payload.appliedTags?.length) {
+      body.applied_tags = payload.appliedTags;
+    }
+    const route = Routes.threads(channelId);
+    return await rest.post(route, { body });
+  }
+
+  // Neither messageId nor message provided - invalid call
+  throw new Error(
+    "thread-create requires either messageId (for threads on messages) or message (for forum posts)",
+  );
 }
 
 export async function listThreadsDiscord(payload: DiscordThreadList, opts: DiscordReactOpts = {}) {

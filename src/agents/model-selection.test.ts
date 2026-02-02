@@ -19,6 +19,13 @@ describe("model-selection", () => {
       expect(normalizeProviderId("qwen")).toBe("qwen-portal");
       expect(normalizeProviderId("kimi-code")).toBe("kimi-coding");
     });
+
+    it("should normalize Google provider variants", () => {
+      expect(normalizeProviderId("google")).toBe("google-generative-ai");
+      expect(normalizeProviderId("gemini")).toBe("google-generative-ai");
+      expect(normalizeProviderId("Google")).toBe("google-generative-ai");
+      expect(normalizeProviderId("google-generative-ai")).toBe("google-generative-ai");
+    });
   });
 
   describe("parseModelRef", () => {

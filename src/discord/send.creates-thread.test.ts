@@ -59,13 +59,77 @@ describe("sendMessageDiscord", () => {
     vi.clearAllMocks();
   });
 
-  it("creates a thread", async () => {
+  it("creates a thread from existing message", async () => {
     const { rest, postMock } = makeRest();
     postMock.mockResolvedValue({ id: "t1" });
     await createThreadDiscord("chan1", { name: "thread", messageId: "m1" }, { rest, token: "t" });
     expect(postMock).toHaveBeenCalledWith(
       Routes.threads("chan1", "m1"),
       expect.objectContaining({ body: { name: "thread" } }),
+    );
+  });
+
+  it("creates a forum post without messageId", async () => {
+    const { rest, postMock } = makeRest();
+    postMock.mockResolvedValue({ id: "t2" });
+    await createThreadDiscord(
+      "forum-chan",
+      { name: "[bead-xxx] Test post", message: { content: "Bead description" } },
+      { rest, token: "t" },
+    );
+    expect(postMock).toHaveBeenCalledWith(
+      Routes.threads("forum-chan"),
+      expect.objectContaining({
+        body: { name: "[bead-xxx] Test post", message: { content: "Bead description" } },
+      }),
+    );
+  });
+
+  it("includes applied_tags for forum posts", async () => {
+    const { rest, postMock } = makeRest();
+    postMock.mockResolvedValue({ id: "t3" });
+    await createThreadDiscord(
+      "forum-chan",
+      {
+        name: "Tagged post",
+        message: { content: "Content" },
+        appliedTags: ["tag1", "tag2"],
+      },
+      { rest, token: "t" },
+    );
+    expect(postMock).toHaveBeenCalledWith(
+      Routes.threads("forum-chan"),
+      expect.objectContaining({
+        body: {
+          name: "Tagged post",
+          message: { content: "Content" },
+          applied_tags: ["tag1", "tag2"],
+        },
+      }),
+    );
+  });
+
+  it("includes auto_archive_duration for forum posts", async () => {
+    const { rest, postMock } = makeRest();
+    postMock.mockResolvedValue({ id: "t4" });
+    await createThreadDiscord(
+      "forum-chan",
+      {
+        name: "Archived post",
+        message: { content: "Content" },
+        autoArchiveMinutes: 1440,
+      },
+      { rest, token: "t" },
+    );
+    expect(postMock).toHaveBeenCalledWith(
+      Routes.threads("forum-chan"),
+      expect.objectContaining({
+        body: {
+          name: "Archived post",
+          message: { content: "Content" },
+          auto_archive_duration: 1440,
+        },
+      }),
     );
   });
 

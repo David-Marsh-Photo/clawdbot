@@ -170,6 +170,8 @@ function resolveFallbackCandidates(params: {
   const seen = new Set<string>();
   const candidates: ModelCandidate[] = [];
 
+  // DEBUG: Log fallback resolution
+
   const addCandidate = (candidate: ModelCandidate, enforceAllowlist: boolean) => {
     if (!candidate.provider || !candidate.model) {
       return;
@@ -216,6 +218,8 @@ function resolveFallbackCandidates(params: {
   if (params.fallbacksOverride === undefined && primary?.provider && primary.model) {
     addCandidate({ provider: primary.provider, model: primary.model }, false);
   }
+
+  // DEBUG: Log final candidates
 
   return candidates;
 }

@@ -38,6 +38,10 @@ export function normalizeProviderId(provider: string): string {
   if (normalized === "kimi-code") {
     return "kimi-coding";
   }
+  // Normalize Google provider variants to canonical form
+  if (normalized === "google" || normalized === "gemini") {
+    return "google-generative-ai";
+  }
   return normalized;
 }
 

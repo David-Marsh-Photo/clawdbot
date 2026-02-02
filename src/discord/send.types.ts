@@ -70,7 +70,9 @@ export type DiscordMessageEdit = {
 export type DiscordThreadCreate = {
   messageId?: string;
   name: string;
+  message?: { content: string };
   autoArchiveMinutes?: number;
+  appliedTags?: string[];
 };
 
 export type DiscordThreadList = {
