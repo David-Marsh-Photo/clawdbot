@@ -557,6 +557,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     new DiscordReactionListener({
       cfg,
       accountId: account.accountId,
+      token,
       runtime,
       botUserId,
       guildEntries,
@@ -568,6 +569,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     new DiscordReactionRemoveListener({
       cfg,
       accountId: account.accountId,
+      token,
       runtime,
       botUserId,
       guildEntries,
