@@ -1,68 +1,138 @@
-/**
- * Simple reasoning summarizer - accumulates thinking content and formats for display.
- * This is a minimal implementation that truncates rather than summarizes.
- * A future enhancement could use a local LLM for actual summarization.
- */
+import { createSubsystemLogger } from "../../logging/subsystem.js";
+
+const log = createSubsystemLogger("reasoning-summarizer");
+
+const SUMMARIZATION_PROMPT = `Convert to 4 bullet points (5-10 words each, present continuous tense like "Analyzing...", "Considering...").
+Output ONLY 4 lines starting with "- ". No thinking, no explanation. /no_think`;
 
 export type SummarizerConfig = {
-  baseUrl: string;
-  model: string;
-  updateIntervalMs: number;
-  timeoutMs: number;
+  baseUrl: string; // default: "http://127.0.0.1:8000/v1"
+  model: string; // default: "Qwen/Qwen3-8B-AWQ"
+  updateIntervalMs: number; // default: 5000
+  timeoutMs: number; // default: 15000
 };
 
-/** Max chars to keep in buffer before truncating from the front. */
-const MAX_BUFFER_CHARS = 4000;
+type SummarizerState = {
+  buffer: string;
+  lastSummary: string[];
+  lastSummarizedAt: number;
+  startedAt: number;
+  inFlight: boolean;
+};
 
-/** Max chars to display (leaves room for formatting). */
-const MAX_DISPLAY_CHARS = 1800;
+const sessions = new Map<string, SummarizerState>();
 
-// Track accumulated thinking per session
-const sessionBuffers = new Map<string, string>();
-
-/**
- * Append new thinking content to a session's buffer.
- */
-export function appendThinking(sessionKey: string, content: string): void {
-  const existing = sessionBuffers.get(sessionKey) ?? "";
-  let combined = existing + content;
-
-  // Truncate from the front if buffer exceeds max
-  if (combined.length > MAX_BUFFER_CHARS) {
-    combined = "..." + combined.slice(combined.length - MAX_BUFFER_CHARS + 3);
+export function appendThinking(sessionKey: string, delta: string): void {
+  let state = sessions.get(sessionKey);
+  if (!state) {
+    state = {
+      buffer: "",
+      lastSummary: [],
+      lastSummarizedAt: 0,
+      startedAt: Date.now(),
+      inFlight: false,
+    };
+    sessions.set(sessionKey, state);
   }
-
-  sessionBuffers.set(sessionKey, combined);
+  state.buffer += delta;
 }
 
-/**
- * Get formatted display content for a session.
- * Shows the most recent thinking, truncated to fit Discord's limits.
- */
 export async function getSummaryDisplay(
   sessionKey: string,
-  _config: SummarizerConfig,
+  config: SummarizerConfig,
 ): Promise<string> {
-  const buffer = sessionBuffers.get(sessionKey) ?? "";
-
-  if (!buffer) {
-    return "*thinking...*";
+  const state = sessions.get(sessionKey);
+  if (!state) {
+    return formatDisplay([], 0);
   }
 
-  // Get the tail of the buffer for display
-  let display = buffer;
-  if (display.length > MAX_DISPLAY_CHARS) {
-    display = "..." + display.slice(display.length - MAX_DISPLAY_CHARS + 3);
+  const elapsed = Date.now() - state.startedAt;
+  const timeSinceSummary = Date.now() - state.lastSummarizedAt;
+
+  // Check if we should request new summary
+  const shouldSummarize =
+    state.buffer.length > 100 && timeSinceSummary >= config.updateIntervalMs && !state.inFlight;
+
+  if (shouldSummarize) {
+    state.inFlight = true;
+    try {
+      const bullets = await requestSummary(state.buffer, config);
+      if (bullets.length > 0) {
+        state.lastSummary = bullets;
+        state.lastSummarizedAt = Date.now();
+      }
+    } catch (err) {
+      log.debug(`summarization failed: ${String(err)}`);
+    } finally {
+      state.inFlight = false;
+    }
   }
 
-  // Format as a quote block with italic header
-  const lines = display.split("\n").map((line) => `> ${line}`);
-  return `*reasoning:*\n${lines.join("\n")}`;
+  return formatDisplay(state.lastSummary, elapsed);
 }
 
-/**
- * Clear a session's buffer (called when turn completes).
- */
+async function requestSummary(buffer: string, config: SummarizerConfig): Promise<string[]> {
+  const truncated = buffer.slice(-4000); // Last ~4000 chars
+
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [
+        { role: "system", content: SUMMARIZATION_PROMPT },
+        { role: "user", content: truncated },
+      ],
+      max_tokens: 100,
+      temperature: 0.3,
+    }),
+    signal: AbortSignal.timeout(config.timeoutMs),
+  });
+
+  if (!response.ok) {
+    throw new Error(`vLLM error: ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  let text = data.choices?.[0]?.message?.content ?? "";
+
+  // Strip Qwen3 thinking tags if present
+  const thinkEndIdx = text.indexOf("</think>");
+  if (thinkEndIdx !== -1) {
+    text = text.slice(thinkEndIdx + 8).trim();
+  }
+
+  return text
+    .split("\n")
+    .map((line: string) => line.replace(/^[-•]\s*/, "").trim())
+    .filter((line: string) => line.length > 0)
+    .slice(0, 4);
+}
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function formatDisplay(bullets: string[], elapsedMs: number): string {
+  const seconds = Math.round(elapsedMs / 1000);
+  const spinnerIdx = Math.floor(elapsedMs / 500) % SPINNER_FRAMES.length;
+  const spinner = SPINNER_FRAMES[spinnerIdx];
+  const header = `${spinner} **Thinking...** (${seconds}s)`;
+
+  // Ensure exactly 4 bullet lines for consistent height
+  const paddedBullets = [...bullets];
+  while (paddedBullets.length < 4) {
+    paddedBullets.push(paddedBullets.length === 0 ? "Processing..." : "\u200B");
+  }
+
+  const bulletLines = paddedBullets
+    .slice(0, 4)
+    .map((b) => `• ${b.slice(0, 60)}`)
+    .join("\n");
+
+  return `${header}\n\`\`\`\n${bulletLines}\n\`\`\``;
+}
+
 export function clearSession(sessionKey: string): void {
-  sessionBuffers.delete(sessionKey);
+  sessions.delete(sessionKey);
 }

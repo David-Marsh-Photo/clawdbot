@@ -196,8 +196,12 @@ export async function sendOrUpdateReasoningStream(
   }
 }
 
+/** Delay before deleting reasoning message so user can see it (ms). */
+const DELETE_DELAY_MS = 3000;
+
 /**
  * Clean up and delete a reasoning message (called when turn completes).
+ * Waits a few seconds before deleting so the user can see the final state.
  */
 export async function clearReasoningEntry(
   channelId: string,
@@ -211,18 +215,23 @@ export async function clearReasoningEntry(
 
   const entry = activeReasoningMessages.get(key);
 
-  // Delete the Discord message if it exists
-  if (entry && opts) {
-    try {
-      await deleteMessageDiscord(entry.channelId, entry.messageId, { rest: opts.rest });
-    } catch (err) {
-      logVerbose(`discord: reasoning stream delete failed: ${String(err)}`);
-    }
-  }
-
+  // Clean up local state immediately
   activeReasoningMessages.delete(key);
   lastUpdateTimes.delete(key);
   clearSummarizerSession(key);
+
+  // Delete the Discord message after a delay so user can see it
+  if (entry && opts) {
+    const { rest } = opts;
+    setTimeout(async () => {
+      try {
+        console.log(`[reasoning-stream] deleting message after ${DELETE_DELAY_MS}ms delay`);
+        await deleteMessageDiscord(entry.channelId, entry.messageId, { rest });
+      } catch (err) {
+        logVerbose(`discord: reasoning stream delete failed: ${String(err)}`);
+      }
+    }, DELETE_DELAY_MS);
+  }
 
   // Clean up closed session marker after a delay (allows in-flight requests to complete)
   setTimeout(() => closedSessions.delete(key), 30000);
