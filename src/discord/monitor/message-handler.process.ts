@@ -40,6 +40,14 @@ import {
 import { sendOrUpdateReasoningStream, clearReasoningEntry } from "./reasoning-stream-manager.js";
 import { buildDirectLabel, buildGuildLabel, resolveReplyContext } from "./reply-context.js";
 import { deliverDiscordReply } from "./reply-delivery.js";
+import {
+  initToolStatusHandler,
+  registerToolStatusContext,
+  unregisterToolStatusContext,
+} from "./tool-status-handler.js";
+
+// Initialize tool status handler (idempotent, safe to call multiple times)
+initToolStatusHandler();
 import { resolveDiscordAutoThreadReplyPlan, resolveDiscordThreadStarter } from "./threading.js";
 import { sendTyping } from "./typing.js";
 
@@ -388,6 +396,10 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
       }
     : undefined;
 
+  // Tool status updates - track runId for context routing
+  const toolStatusEnabled = discordConfig?.toolStatusUpdates === true;
+  let currentRunId: string | undefined;
+
   const { queuedFinal, counts } = await dispatchInboundMessage({
     ctx: ctxPayload,
     cfg,
@@ -403,9 +415,25 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         prefixContext.onModelSelected(ctx);
       },
       onReasoningStream,
+      onAgentRunStart: toolStatusEnabled
+        ? (runId) => {
+            currentRunId = runId;
+            registerToolStatusContext(runId, {
+              channelId: typingChannelId,
+              sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
+              token,
+              rest: client.rest,
+            });
+          }
+        : undefined,
     },
   });
   markDispatchIdle();
+
+  // Clean up tool status context
+  if (toolStatusEnabled && currentRunId) {
+    unregisterToolStatusContext(currentRunId);
+  }
 
   // Clean up reasoning stream message (if any)
   if (reasoningStreamEnabled) {
