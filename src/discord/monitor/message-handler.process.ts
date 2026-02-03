@@ -37,6 +37,7 @@ import {
   resolveDiscordMessageText,
   resolveMediaList,
 } from "./message-utils.js";
+import { sendOrUpdateReasoningStream, clearReasoningEntry } from "./reasoning-stream-manager.js";
 import { buildDirectLabel, buildGuildLabel, resolveReplyContext } from "./reply-context.js";
 import { deliverDiscordReply } from "./reply-delivery.js";
 import { resolveDiscordAutoThreadReplyPlan, resolveDiscordThreadStarter } from "./threading.js";
@@ -371,6 +372,22 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     }).onReplyStart,
   });
 
+  // Reasoning stream callback (if enabled)
+  const reasoningStreamEnabled = discordConfig?.reasoningStreaming === true;
+  const reasoningSessionKey = ctxPayload.SessionKey ?? route.sessionKey;
+  const onReasoningStream = reasoningStreamEnabled
+    ? async (payload: ReplyPayload) => {
+        if (payload.text) {
+          await sendOrUpdateReasoningStream({
+            channelId: typingChannelId,
+            sessionKey: reasoningSessionKey,
+            content: payload.text,
+            opts: { token, rest: client.rest },
+          });
+        }
+      }
+    : undefined;
+
   const { queuedFinal, counts } = await dispatchInboundMessage({
     ctx: ctxPayload,
     cfg,
@@ -385,9 +402,15 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
       onModelSelected: (ctx) => {
         prefixContext.onModelSelected(ctx);
       },
+      onReasoningStream,
     },
   });
   markDispatchIdle();
+
+  // Clean up reasoning stream message (if any)
+  if (reasoningStreamEnabled) {
+    await clearReasoningEntry(typingChannelId, reasoningSessionKey, { rest: client.rest });
+  }
   if (!queuedFinal) {
     if (isGuildMessage) {
       clearHistoryEntriesIfEnabled({

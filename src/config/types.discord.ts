@@ -124,6 +124,10 @@ export type DiscordAccountConfig = {
   blockStreaming?: boolean;
   /** Merge streamed block replies before sending. */
   blockStreamingCoalesce?: BlockStreamingCoalesceConfig;
+  /** Stream reasoning/thinking to a separate Discord message during generation. */
+  reasoningStreaming?: boolean;
+  /** Show tool execution status updates in Discord. */
+  toolStatusUpdates?: boolean;
   /**
    * Soft max line count per Discord message.
    * Discord clients can clip/collapse very tall messages; splitting by lines

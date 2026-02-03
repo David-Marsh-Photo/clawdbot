@@ -1,5 +1,5 @@
 import type { StreamFn } from "@mariozechner/pi-agent-core";
-import type { SimpleStreamOptions } from "@mariozechner/pi-ai";
+import type { SimpleStreamOptions, ThinkingBudgets } from "@mariozechner/pi-ai";
 import { streamSimple } from "@mariozechner/pi-ai";
 import type { OpenClawConfig } from "../../config/config.js";
 import { log } from "./logger.js";
@@ -102,7 +102,7 @@ function createStreamFnWithExtraParams(
  * @internal Exported for testing
  */
 export function applyExtraParamsToAgent(
-  agent: { streamFn?: StreamFn },
+  agent: { streamFn?: StreamFn; thinkingBudgets?: ThinkingBudgets },
   cfg: OpenClawConfig | undefined,
   provider: string,
   modelId: string,
@@ -125,5 +125,23 @@ export function applyExtraParamsToAgent(
   if (wrappedStreamFn) {
     log.debug(`applying extraParams to agent streamFn for ${provider}/${modelId}`);
     agent.streamFn = wrappedStreamFn;
+  }
+
+  // Apply thinkingBudgets from config or override
+  // budget_tokens must be strictly less than max_tokens, leaving at least 1 token for output
+  const thinkingBudgets = merged.thinkingBudgets as ThinkingBudgets | undefined;
+  if (thinkingBudgets && typeof thinkingBudgets === "object") {
+    const maxTokens = typeof merged.maxTokens === "number" ? merged.maxTokens : 128000;
+    const cappedBudgets: Record<string, number> = {};
+    for (const [level, budget] of Object.entries(thinkingBudgets)) {
+      if (typeof budget === "number") {
+        // Cap at maxTokens - 1 to ensure at least 1 token for output
+        cappedBudgets[level] = Math.min(budget, maxTokens - 1);
+      }
+    }
+    log.debug(
+      `applying thinkingBudgets to agent: ${JSON.stringify(cappedBudgets)} (maxTokens=${maxTokens})`,
+    );
+    agent.thinkingBudgets = cappedBudgets;
   }
 }
